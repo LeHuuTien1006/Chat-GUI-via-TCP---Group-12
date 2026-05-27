@@ -6,14 +6,20 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>818</width>
+    <width>831</width>
     <height>486</height>
    </rect>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>831</width>
+    <height>486</height>
+   </size>
+  </property>
   <property name="maximumSize">
    <size>
-    <width>16777215</width>
-    <height>16777215</height>
+    <width>831</width>
+    <height>486</height>
    </size>
   </property>
   <property name="font">
@@ -41,7 +47,7 @@
     <string/>
    </property>
    <property name="pixmap">
-    <pixmap>../Download/logochat-removebg-preview.png</pixmap>
+    <pixmap>images/logochat-removebg-preview.png</pixmap>
    </property>
    <property name="scaledContents">
     <bool>true</bool>
@@ -136,7 +142,7 @@ QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color:
        <string/>
       </property>
       <property name="pixmap">
-       <pixmap>../Download/ipchat-removebg-preview.png</pixmap>
+       <pixmap>images/ipchat-removebg-preview.png</pixmap>
       </property>
       <property name="scaledContents">
        <bool>true</bool>
@@ -312,7 +318,7 @@ QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color:
          <string/>
         </property>
         <property name="pixmap">
-         <pixmap>../Download/avtchat-removebg-preview.png</pixmap>
+         <pixmap>images/avtchat-removebg-preview.png</pixmap>
         </property>
         <property name="scaledContents">
          <bool>true</bool>
@@ -399,6 +405,9 @@ QLineEdit:focus {
      <bold>true</bold>
     </font>
    </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
+   </property>
    <property name="styleSheet">
     <string notr="true">QPushButton { background-color: #3B82F6; color: white; border-radius: 20px; font-weight: bold; font-size: 14px; }
 QPushButton:hover { background-color: #2563EB;
@@ -417,6 +426,9 @@ QPushButton:hover { background-color: #2563EB;
      <width>111</width>
      <height>41</height>
     </rect>
+   </property>
+   <property name="cursor">
+    <cursorShape>PointingHandCursor</cursorShape>
    </property>
    <property name="styleSheet">
     <string notr="true">QPushButton { background-color: #E5E7EB; color: #374151; border-radius: 20px; font-size: 14px; }
@@ -445,7 +457,7 @@ QPushButton:hover { background-color: #D1D5DB; }</string>
     <string notr="true">color: #9CA3AF;</string>
    </property>
    <property name="text">
-    <string>Ready to connect...</string>
+    <string/>
    </property>
   </widget>
  </widget>
