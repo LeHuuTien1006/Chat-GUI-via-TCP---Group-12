@@ -1,4 +1,4 @@
-# PROJECT CODE: UDM_08 Lập trình ứng dụng Chat (GUI) via TCP
+# PROJECT: UDM_08 Lập trình ứng dụng Chat (GUI) via TCP
 
 ## 1. Thành viên nhóm
 | STT | Họ và tên | MSSV | Tài khoản GitHub |
