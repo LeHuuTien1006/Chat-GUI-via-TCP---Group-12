@@ -1,5 +1,5 @@
 """
-Task 1.2 - Nghiên cứu struct Python (Binary Header)
+Task 1.2 - Nghiên cứu struct Python (Binary Header) 
 Nhóm 12 - Lê Hữu Tiến
 Script test nhỏ để hiểu cách đóng gói số nguyên thành 4 byte nhị phân,
 chuẩn bị cho việc giải quyết TCP Sticky Packets ở Task 2.3.
