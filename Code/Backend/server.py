@@ -36,28 +36,48 @@ def handle_client(conn, addr):
                 
             # 3. Kiem tra xem la Text(JSON) hay la Anh(Binary)
             try:
-                # Thu dich sang string
                 text = payload.decode('utf-8')
                 data_json = json.loads(text)
                 
-                # Xu ly cac lenh JSON
+                # Xu ly lenh Login
                 if data_json.get("type") == "login":
                     name = data_json.get("nickname")
                     print(f"[{addr}] dang nhap: {name}")
                     
-                    # Gui phan hoi kem header
                     reply = json.dumps({"type": "info", "msg": "OK"}).encode('utf-8')
                     reply_header = struct.pack("!I", len(reply))
                     conn.sendall(reply_header + reply)
                     
+                # Xu ly luong Chat chu (Broadcast)
                 elif data_json.get("type") == "chat_all":
-                    print(f"[{data_json.get('sender')}] chat: {data_json.get('content')}")
-                    # TODO: Tuan sau viet vong lap gui tin nhan cho moi nguoi
+                    sender = data_json.get("sender")
+                    content = data_json.get("content")
+                    print(f"[{sender}] chat: {content}")
                     
+                    forward_msg = json.dumps({"type": "new_message", "sender": sender, "content": content}).encode('utf-8')
+                    forward_header = struct.pack("!I", len(forward_msg))
+                    
+                    # Vong lap chuyen tiep tin nhan cho cac client khac
+                    for client_addr, client_conn in clients.items():
+                        if client_addr != addr:
+                            try:
+                                client_conn.sendall(forward_header + forward_msg)
+                            except:
+                                pass
+                        
             except UnicodeDecodeError:
-                # Dich loi -> Do la file anh cua Tien gui
+                # Dich loi tieng Viet -> Day la luong byte anh cua Tien gui
                 print(f"Nhan duoc file ANH tu {addr}, dung luong: {size} bytes")
-                # TODO: Tuan sau viet code forward anh di
+                
+                img_header = struct.pack("!I", len(payload))
+                
+                # Vong lap chuyen tiep anh cho cac client khac
+                for client_addr, client_conn in clients.items():
+                    if client_addr != addr:
+                        try:
+                            client_conn.sendall(img_header + payload)
+                        except:
+                            pass
                 
         except Exception as e:
             print("Loi ngat ket noi:", e)
