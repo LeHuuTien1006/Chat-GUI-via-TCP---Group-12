@@ -1,10 +1,13 @@
 import sys
+import os
 import json
 import struct
 import socket
 import numpy as np
 import cv2
 import base64
+from datetime import datetime
+from integration import MessageSearchEngine, Message
 from PySide6.QtWidgets import QApplication, QWidget, QMessageBox, QTextBrowser, QVBoxLayout, QLabel
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QImage, QPixmap
@@ -58,9 +61,7 @@ class SocketWorker(QThread):
         except Exception as e:
             self.login_error.emit(f"Lỗi mạng: {str(e)}")
 
-# -------------------------------------------------------------
 # LUỒNG LẮNG NGHE TIN NHẮN TỪ SERVER
-# -------------------------------------------------------------
 class ReceiveThread(QThread):
     message_received = Signal(str, str) # Tín hiệu phát ra: (người_gửi, nội_dung)
     image_received = Signal(object)
@@ -100,7 +101,6 @@ class ReceiveThread(QThread):
                     if data.get("type") == "new_message":
                         self.message_received.emit(data["sender"], data["content"])
                 except UnicodeDecodeError:
-                    # Bắt lỗi decode -> Đây chắc chắn là file ảnh (Binary)
                     # Sử dụng logic giải mã từ OpenCV
                     buffer = np.frombuffer(payload, dtype=np.uint8)
                     frame = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
@@ -112,9 +112,7 @@ class ReceiveThread(QThread):
                 print("[ReceiveThread] Lỗi nhận dữ liệu:", e)
                 break
 
-# -------------------------------------------------------------
 # LUỒNG CHỤP ẢNH TỪ WEBCAM (TRÁNH ĐƠ GIAO DIỆN)
-# -------------------------------------------------------------
 class CameraThread(QThread):
     image_encoded = Signal(bytes) # Tín hiệu mang mảng byte của ảnh
     error_occurred = Signal(str)
@@ -182,7 +180,13 @@ class ChatWindow(QWidget):
         self.receiver.start()
         
         self.ui.lbl_chat_title.setText(f"Chào mừng, {self.nickname}!")
+        # Khởi tạo bộ máy tìm kiếm tin nhắn
+        self.engine = MessageSearchEngine()
+        self.msg_counter = 0 # Biến tạo ID tự tăng cho tin nhắn
 
+        # Gắn sự kiện cho nút tìm kiếm và khi ấn Enter ở ô tìm kiếm
+        self.ui.btn_search_chat.clicked.connect(self.perform_search)
+        self.ui.txt_search.returnPressed.connect(self.perform_search)
 
 
     def send_message(self):
@@ -205,10 +209,23 @@ class ChatWindow(QWidget):
             print("Lỗi gửi tin nhắn:", e)
 
     def display_message(self, sender, content):
-        # Định dạng và in tin nhắn lên khung chat
+        # 1. Định dạng và in tin nhắn lên khung chat (code cũ của em)
         color = "#3498db" if sender == "Tôi" else "#e74c3c"
         html_msg = f'<div style="margin-bottom: 5px;"><b><span style="color:{color};">{sender}:</span></b> {content}</div>'
         self.chat_browser.append(html_msg)
+
+        # 2. Đóng gói tin nhắn vào Object Message và lưu vào Engine (code mới thêm)
+        self.msg_counter += 1
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # Tạo đối tượng Message chuẩn theo API của Tiến
+        msg_obj = Message(
+            msg_id=self.msg_counter, 
+            sender=sender, 
+            content=content, 
+            timestamp=timestamp
+        )
+        self.engine.add_message(msg_obj)
 
     def display_image(self, frame, is_sender=False):
         # 1. Nén ảnh thành Base64 (chuỗi ký tự) để nhúng vào HTML
@@ -225,6 +242,29 @@ class ChatWindow(QWidget):
         # 3. Ép ảnh vào khung chat bằng thẻ HTML <img> kèm giới hạn chiều rộng 250px (chống vỡ layout)
         html_msg = f'<div style="margin-bottom: 5px;"><b><span style="color:{color};">{sender}:</span></b><br><img src="data:image/jpeg;base64,{b64_str}" width="250"></div>'
         self.chat_browser.append(html_msg)
+
+    def perform_search(self):
+        # 1. Lấy từ khóa người dùng nhập
+        keyword = self.ui.txt_search.text().strip()
+        
+        if not keyword:
+            self.display_message("Hệ thống", "Vui lòng nhập từ khóa vào ô tìm kiếm!")
+            return
+
+        # 2. Gọi hàm tìm kiếm của Tiến, trả về danh sách HTML đã bôi vàng
+        results_html = self.engine.get_qt_html_results(keyword)
+        
+        # 3. Hiển thị kết quả ra màn hình (ngăn cách bằng đường kẻ <hr>)
+        self.chat_browser.append("<hr>")
+        self.chat_browser.append(f"<div style='color: #f1c40f;'><b>🔍 KẾT QUẢ TÌM KIẾM CHO: '{keyword}' ({len(results_html)} kết quả)</b></div>")
+        
+        if len(results_html) == 0:
+            self.chat_browser.append("<i>Không tìm thấy tin nhắn nào khớp.</i>")
+        else:
+            for html_line in results_html:
+                self.chat_browser.append(html_line)
+                
+        self.chat_browser.append("<hr>")
 
     def capture_and_send_image(self):
         # Vô hiệu hóa nút tạm thời để tránh click liên tục
