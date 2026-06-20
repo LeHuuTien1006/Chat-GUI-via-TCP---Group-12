@@ -2,7 +2,7 @@ import sys
 import json
 import struct
 import socket
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QWidget, QMessageBox, QTextBrowser, QVBoxLayout
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtCore import QFile, QTimer, QThread, Signal
 
@@ -55,17 +55,62 @@ class SocketWorker(QThread):
             self.login_error.emit(f"Lỗi mạng: {str(e)}")
 
 # -------------------------------------------------------------
-# 2. CỬA SỔ PHÒNG CHAT (CHÍNH)
+# LUỒNG LẮNG NGHE TIN NHẮN TỪ SERVER
 # -------------------------------------------------------------
-class ChatWindow(QWidget):
+class ReceiveThread(QThread):
+    message_received = Signal(str, str) # Tín hiệu phát ra: (người_gửi, nội_dung)
+
     def __init__(self, sock):
         super().__init__()
-        # Lưu lại đối tượng socket từ màn hình đăng nhập truyền sang
+        self.sock = sock
+        self._is_running = True
+
+    def run(self):
+        while self._is_running:
+            try:
+                # 1. Nhận 4-byte header để biết kích thước gói tin
+                header = b""
+                while len(header) < 4:
+                    chunk = self.sock.recv(4 - len(header))
+                    if not chunk:
+                        return
+                    header += chunk
+                
+                size = struct.unpack("!I", header)[0]
+                
+                # 2. Nhận đủ dữ liệu (payload)
+                payload = b""
+                while len(payload) < size:
+                    chunk = self.sock.recv(size - len(payload))
+                    if not chunk:
+                        return
+                    payload += chunk
+                    
+                # 3. Phân loại dữ liệu
+                try:
+                    text = payload.decode('utf-8')
+                    data = json.loads(text)
+                    
+                    # Nếu server báo có tin nhắn mới thì báo ra ngoài giao diện
+                    if data.get("type") == "new_message":
+                        self.message_received.emit(data["sender"], data["content"])
+                except UnicodeDecodeError:
+                    # Gặp lỗi decode nghĩa là đây là file ảnh (Binary)
+                    # Anh em mình sẽ xử lý phần ảnh ở bước sau
+                    pass
+            except Exception as e:
+                print("[ReceiveThread] Lỗi nhận dữ liệu:", e)
+                break
+
+# 2. CỬA SỔ PHÒNG CHAT (CHÍNH)
+class ChatWindow(QWidget):
+    def __init__(self, sock, nickname):
+        super().__init__()
         self.sock = sock 
+        self.nickname = nickname # Nhận tên từ màn hình đăng nhập
         
         loader = QUiLoader()
         ui_file = QFile("mainchatUI.ui") 
-        
         if not ui_file.open(QFile.ReadOnly):
             print(f"Không thể mở file UI phòng chat: {ui_file.errorString()}")
             sys.exit(-1)
@@ -73,9 +118,47 @@ class ChatWindow(QWidget):
         self.ui = loader.load(ui_file, self)
         ui_file.close()
 
-        # In log để xác nhận đã nhận socket thành công
-        print(f"[ChatWindow] Sẵn sàng! Đã nhận socket kết nối: {self.sock.getpeername()}")
+        # 1. Khởi tạo khung hiển thị văn bản chat (QTextBrowser)
+        self.chat_browser = QTextBrowser()
+        self.chat_browser.setStyleSheet("background-color: transparent; color: white; border: none; font-size: 14px;")
+        layout = QVBoxLayout(self.ui.scrollAreaWidgetContents_2)
+        layout.addWidget(self.chat_browser)
 
+        # 2. Gắn sự kiện gửi tin nhắn khi bấm nút hoặc ấn Enter
+        self.ui.btn_send.clicked.connect(self.send_message)
+        self.ui.txt_input_message.returnPressed.connect(self.send_message)
+
+        # 3. Khởi chạy luồng nhận tin nhắn liên tục
+        self.receiver = ReceiveThread(self.sock)
+        self.receiver.message_received.connect(self.display_message)
+        self.receiver.start()
+        
+        self.ui.lbl_chat_title.setText(f"Chào mừng, {self.nickname}!")
+
+    def send_message(self):
+        content = self.ui.txt_input_message.text().strip()
+        if not content:
+            return
+
+        # Đóng gói JSON và 4-byte header theo đúng chuẩn PM dặn
+        msg_dict = {"type": "chat_all", "sender": self.nickname, "content": content}
+        payload = json.dumps(msg_dict).encode('utf-8')
+        header = struct.pack("!I", len(payload))
+
+        try:
+            self.sock.sendall(header + payload)
+            # In ra màn hình của chính mình trước
+            self.display_message("Tôi", content)
+            self.ui.txt_input_message.clear()
+            print(f"[LOG] Đã gửi JSON: {msg_dict}")
+        except Exception as e:
+            print("Lỗi gửi tin nhắn:", e)
+
+    def display_message(self, sender, content):
+        # Định dạng và in tin nhắn lên khung chat
+        color = "#3498db" if sender == "Tôi" else "#e74c3c"
+        html_msg = f'<div style="margin-bottom: 5px;"><b><span style="color:{color};">{sender}:</span></b> {content}</div>'
+        self.chat_browser.append(html_msg)
 
 class LoginWindow(QWidget): 
     def __init__(self):
@@ -128,9 +211,11 @@ class LoginWindow(QWidget):
         self.timer.stop()
         self.ui.label_readytochat.setText(msg)
         
-        # THỰC THI CHUYỂN LUỒNG
-        self.hide()                          # Ẩn cửa sổ đăng nhập
-        self.chat_window = ChatWindow(sock)  # Khởi tạo cửa sổ chat & truyền socket vào
+        # Lấy nickname để truyền sang phòng chat
+        nickname = self.ui.lineEdit_inputnickname.text().strip()
+        
+        self.hide()                          
+        self.chat_window = ChatWindow(sock, nickname) # Khởi tạo kèm tên người dùng
         self.chat_window.show()              # Hiển thị cửa sổ chat
 
     def handle_login_error(self, msg):
