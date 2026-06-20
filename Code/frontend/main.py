@@ -2,9 +2,13 @@ import sys
 import json
 import struct
 import socket
-from PySide6.QtWidgets import QApplication, QWidget, QMessageBox, QTextBrowser, QVBoxLayout
+import numpy as np
+import cv2
+import base64
+from PySide6.QtWidgets import QApplication, QWidget, QMessageBox, QTextBrowser, QVBoxLayout, QLabel
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtCore import QFile, QTimer, QThread, Signal
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtCore import QFile, QTimer, QThread, Signal, Qt
 
 class SocketWorker(QThread):
     status_update = Signal(str)
@@ -59,6 +63,7 @@ class SocketWorker(QThread):
 # -------------------------------------------------------------
 class ReceiveThread(QThread):
     message_received = Signal(str, str) # Tín hiệu phát ra: (người_gửi, nội_dung)
+    image_received = Signal(object)
 
     def __init__(self, sock):
         super().__init__()
@@ -95,12 +100,50 @@ class ReceiveThread(QThread):
                     if data.get("type") == "new_message":
                         self.message_received.emit(data["sender"], data["content"])
                 except UnicodeDecodeError:
-                    # Gặp lỗi decode nghĩa là đây là file ảnh (Binary)
-                    # Anh em mình sẽ xử lý phần ảnh ở bước sau
+                    # Bắt lỗi decode -> Đây chắc chắn là file ảnh (Binary)
+                    # Sử dụng logic giải mã từ OpenCV
+                    buffer = np.frombuffer(payload, dtype=np.uint8)
+                    frame = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+                    
+                    if frame is not None:
+                        self.image_received.emit(frame) # Phát tín hiệu ảnh ra ngoài
                     pass
             except Exception as e:
                 print("[ReceiveThread] Lỗi nhận dữ liệu:", e)
                 break
+
+# -------------------------------------------------------------
+# LUỒNG CHỤP ẢNH TỪ WEBCAM (TRÁNH ĐƠ GIAO DIỆN)
+# -------------------------------------------------------------
+class CameraThread(QThread):
+    image_encoded = Signal(bytes) # Tín hiệu mang mảng byte của ảnh
+    error_occurred = Signal(str)
+
+    def run(self):
+        try:
+            # 1. Mở camera mặc định (index = 0)
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                self.error_occurred.emit("Không thể kết nối với Webcam!")
+                return
+            
+            # 2. Chụp 1 khung hình rồi tắt camera ngay
+            ret, frame = cap.read()
+            cap.release()
+
+            if not ret or frame is None:
+                self.error_occurred.emit("Chụp ảnh thất bại!")
+                return
+
+            # 3. Nén ảnh thành chuẩn JPEG để giảm dung lượng mạng
+            success, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if success:
+                # Chuyển thành dạng byte và phát tín hiệu ra ngoài
+                self.image_encoded.emit(buffer.tobytes())
+            else:
+                self.error_occurred.emit("Lỗi mã hóa ảnh!")
+        except Exception as e:
+            self.error_occurred.emit(f"Lỗi Camera: {str(e)}")
 
 # 2. CỬA SỔ PHÒNG CHAT (CHÍNH)
 class ChatWindow(QWidget):
@@ -128,12 +171,19 @@ class ChatWindow(QWidget):
         self.ui.btn_send.clicked.connect(self.send_message)
         self.ui.txt_input_message.returnPressed.connect(self.send_message)
 
+        self.ui.btn_camera.clicked.connect(self.capture_and_send_image)
+
         # 3. Khởi chạy luồng nhận tin nhắn liên tục
         self.receiver = ReceiveThread(self.sock)
         self.receiver.message_received.connect(self.display_message)
+        
+        # Kết nối tín hiệu nhận ảnh
+        self.receiver.image_received.connect(self.display_image)
         self.receiver.start()
         
         self.ui.lbl_chat_title.setText(f"Chào mừng, {self.nickname}!")
+
+
 
     def send_message(self):
         content = self.ui.txt_input_message.text().strip()
@@ -159,6 +209,51 @@ class ChatWindow(QWidget):
         color = "#3498db" if sender == "Tôi" else "#e74c3c"
         html_msg = f'<div style="margin-bottom: 5px;"><b><span style="color:{color};">{sender}:</span></b> {content}</div>'
         self.chat_browser.append(html_msg)
+
+    def display_image(self, frame, is_sender=False):
+        # 1. Nén ảnh thành Base64 (chuỗi ký tự) để nhúng vào HTML
+        success, buffer = cv2.imencode(".jpg", frame)
+        if not success:
+            return
+            
+        b64_str = base64.b64encode(buffer).decode('utf-8')
+        
+        # 2. Phân biệt màu sắc người gửi và người nhận
+        sender = "Tôi" if is_sender else "Người khác"
+        color = "#3498db" if is_sender else "#e74c3c"
+        
+        # 3. Ép ảnh vào khung chat bằng thẻ HTML <img> kèm giới hạn chiều rộng 250px (chống vỡ layout)
+        html_msg = f'<div style="margin-bottom: 5px;"><b><span style="color:{color};">{sender}:</span></b><br><img src="data:image/jpeg;base64,{b64_str}" width="250"></div>'
+        self.chat_browser.append(html_msg)
+
+    def capture_and_send_image(self):
+        # Vô hiệu hóa nút tạm thời để tránh click liên tục
+        self.ui.btn_camera.setEnabled(False)
+        self.display_message("Hệ thống", "Đang mở camera chụp ảnh...")
+        
+        # Khởi chạy luồng camera
+        self.camera_thread = CameraThread()
+        self.camera_thread.image_encoded.connect(self.send_image_bytes)
+        self.camera_thread.error_occurred.connect(lambda err: self.display_message("Lỗi", err))
+        self.camera_thread.finished.connect(lambda: self.ui.btn_camera.setEnabled(True))
+        self.camera_thread.start()
+
+    def send_image_bytes(self, img_bytes):
+        # Đóng gói ảnh kèm header 4-byte
+        header = struct.pack("!I", len(img_bytes))
+        
+        try:
+            self.sock.sendall(header + img_bytes)
+            print(f"[LOG] Đã gửi ảnh thành công, dung lượng: {len(img_bytes)} bytes")
+            
+            # Giải mã chính byte ảnh mình vừa chụp để in lên khung chat của bản thân
+            buffer = np.frombuffer(img_bytes, dtype=np.uint8)
+            frame = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
+            self.display_image(frame, is_sender=True) 
+            
+        except Exception as e:
+            print("Lỗi gửi ảnh:", e)
+            self.display_message("Lỗi", "Không thể gửi ảnh!")
 
 class LoginWindow(QWidget): 
     def __init__(self):

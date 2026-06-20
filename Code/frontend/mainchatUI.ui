@@ -88,7 +88,7 @@ QPushButton:hover {
         </property>
         <property name="icon">
          <iconset>
-          <normaloff>Code/frontend/images/chaticon.svg</normaloff>Code/frontend/images/chaticon.svg</iconset>
+          <normaloff>images/chaticon.svg</normaloff>images/chaticon.svg</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -143,7 +143,7 @@ QPushButton:hover {
         </property>
         <property name="icon">
          <iconset>
-          <normaloff>Code/frontend/images/avtchat-removebg-preview.png</normaloff>Code/frontend/images/avtchat-removebg-preview.png</iconset>
+          <normaloff>images/avtchat-removebg-preview.png</normaloff>images/avtchat-removebg-preview.png</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -256,7 +256,7 @@ QPushButton:hover {
           </property>
           <property name="icon">
            <iconset>
-            <normaloff>Code/frontend/images/usergr.svg</normaloff>Code/frontend/images/usergr.svg</iconset>
+            <normaloff>images/usergr.svg</normaloff>images/usergr.svg</iconset>
           </property>
           <property name="iconSize">
            <size>
@@ -389,7 +389,7 @@ QPushButton#btn_send:hover {
           </property>
           <property name="icon">
            <iconset>
-            <normaloff>Code/frontend/images/search.svg</normaloff>Code/frontend/images/search.svg</iconset>
+            <normaloff>images/search.svg</normaloff>images/search.svg</iconset>
           </property>
           <property name="iconSize">
            <size>
@@ -421,7 +421,7 @@ QPushButton#btn_send:hover {
           </property>
           <property name="icon">
            <iconset>
-            <normaloff>Code/frontend/images/sidebar.svg</normaloff>Code/frontend/images/sidebar.svg</iconset>
+            <normaloff>images/sidebar.svg</normaloff>images/sidebar.svg</iconset>
           </property>
           <property name="iconSize">
            <size>
@@ -479,7 +479,7 @@ QPushButton#btn_send:hover {
           </property>
           <property name="icon">
            <iconset>
-            <normaloff>Code/frontend/images/emoji.svg</normaloff>Code/frontend/images/emoji.svg</iconset>
+            <normaloff>images/emoji.svg</normaloff>images/emoji.svg</iconset>
           </property>
           <property name="iconSize">
            <size>
@@ -511,7 +511,7 @@ QPushButton#btn_send:hover {
           </property>
           <property name="icon">
            <iconset>
-            <normaloff>Code/frontend/images/picture.svg</normaloff>Code/frontend/images/picture.svg</iconset>
+            <normaloff>images/picture.svg</normaloff>images/picture.svg</iconset>
           </property>
           <property name="iconSize">
            <size>
@@ -543,7 +543,7 @@ QPushButton#btn_send:hover {
           </property>
           <property name="icon">
            <iconset>
-            <normaloff>Code/frontend/images/camera.svg</normaloff>Code/frontend/images/camera.svg</iconset>
+            <normaloff>images/camera.svg</normaloff>images/camera.svg</iconset>
           </property>
           <property name="iconSize">
            <size>
@@ -604,7 +604,7 @@ QPushButton#btn_send:hover {
           </property>
           <property name="icon">
            <iconset>
-            <normaloff>Code/frontend/images/send.svg</normaloff>Code/frontend/images/send.svg</iconset>
+            <normaloff>images/send.svg</normaloff>images/send.svg</iconset>
           </property>
           <property name="iconSize">
            <size>
@@ -727,7 +727,7 @@ QPushButton:hover {
                </property>
                <property name="icon">
                 <iconset>
-                 <normaloff>Code/frontend/images/notification.svg</normaloff>Code/frontend/images/notification.svg</iconset>
+                 <normaloff>images/notification.svg</normaloff>images/notification.svg</iconset>
                </property>
                <property name="iconSize">
                 <size>
@@ -785,7 +785,7 @@ QPushButton:hover {
                </property>
                <property name="icon">
                 <iconset>
-                 <normaloff>Code/frontend/images/add_user.svg</normaloff>Code/frontend/images/add_user.svg</iconset>
+                 <normaloff>images/add_user.svg</normaloff>images/add_user.svg</iconset>
                </property>
                <property name="iconSize">
                 <size>
@@ -837,7 +837,7 @@ QPushButton:hover {
                </property>
                <property name="icon">
                 <iconset>
-                 <normaloff>Code/frontend/images/usergr.svg</normaloff>Code/frontend/images/usergr.svg</iconset>
+                 <normaloff>images/usergr.svg</normaloff>images/usergr.svg</iconset>
                </property>
                <property name="iconSize">
                 <size>
@@ -1008,7 +1008,7 @@ QPushButton:hover {
              </property>
              <property name="icon">
               <iconset>
-               <normaloff>Code/frontend/images/pen.svg</normaloff>Code/frontend/images/pen.svg</iconset>
+               <normaloff>images/pen.svg</normaloff>images/pen.svg</iconset>
              </property>
             </widget>
            </item>
