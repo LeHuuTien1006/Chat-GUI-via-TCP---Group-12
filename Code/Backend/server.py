@@ -16,44 +16,30 @@ def recv_exact(conn, size):
             return None
         data += packet
     return data
-def recv_packet(conn):
-    header = recv_exact(conn, 4)
-    if header is None:
-        return None
-    (size,) = struct.unpack("!I", header)
-    return recv_exact(conn, size)
- 
-def broadcast(payload_bytes, exclude_addr=None):
-    header = struct.pack("!I", len(payload_bytes))
-    for c, s in list(clients.items()):
-        if c != exclude_addr:
-            try:
-                s.sendall(header + payload_bytes)
-            except Exception:
-                pass
+
 def handle_client(conn, addr):
     print("Co ket noi tu:", addr)
     
     while True:
         try:
-            # 1. Nhan 4 byte header de lay size
+            # 1. Nhan 4 byte header de lay kich thuoc
             header = recv_exact(conn, 4)
             if not header:
                 break
                 
             size = struct.unpack("!I", header)[0]
             
-            # 2. Nhan du lieu dua tren size
+            # 2. Nhan du payload (data thuc su)
             payload = recv_exact(conn, size)
             if not payload:
                 break
                 
-            # 3. Kiem tra xem la Text(JSON) hay la Anh(Binary)
+            # 3. Phan loai JSON (text) hoac Anh (binary)
             try:
                 text = payload.decode('utf-8')
                 data_json = json.loads(text)
                 
-                # Xu ly lenh Login
+                # --- Xu ly lenh Login ---
                 if data_json.get("type") == "login":
                     name = data_json.get("nickname")
                     print(f"[{addr}] dang nhap: {name}")
@@ -62,7 +48,7 @@ def handle_client(conn, addr):
                     reply_header = struct.pack("!I", len(reply))
                     conn.sendall(reply_header + reply)
                     
-                # Xu ly luong Chat chu (Broadcast)
+                # --- Xu ly Chat chung (Broadcast) ---
                 elif data_json.get("type") == "chat_all":
                     sender = data_json.get("sender")
                     content = data_json.get("content")
@@ -71,7 +57,7 @@ def handle_client(conn, addr):
                     forward_msg = json.dumps({"type": "new_message", "sender": sender, "content": content}).encode('utf-8')
                     forward_header = struct.pack("!I", len(forward_msg))
                     
-                    # Vong lap chuyen tiep tin nhan cho cac client khac
+                    # Gui tin nhan cho cac client khac
                     for client_addr, client_conn in clients.items():
                         if client_addr != addr:
                             try:
@@ -80,12 +66,11 @@ def handle_client(conn, addr):
                                 pass
                         
             except UnicodeDecodeError:
-                # Dich loi tieng Viet -> Day la luong byte anh cua Tien gui
+                # --- Xu ly chuyen tiep Anh ---
                 print(f"Nhan duoc file ANH tu {addr}, dung luong: {size} bytes")
                 
                 img_header = struct.pack("!I", len(payload))
                 
-                # Vong lap chuyen tiep anh cho cac client khac
                 for client_addr, client_conn in clients.items():
                     if client_addr != addr:
                         try:
@@ -97,6 +82,7 @@ def handle_client(conn, addr):
             print("Loi ngat ket noi:", e)
             break
             
+    # Xoa user khoi danh sach khi thoat
     if addr in clients:
         del clients[addr]
     conn.close()
@@ -106,7 +92,7 @@ def main():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((HOST, PORT))
     s.listen(5) 
-    print(f"Server dang chay: {HOST}:{PORT}...")
+    print(f"Server dang chay tai {HOST}:{PORT}...")
     
     while True:
         conn, addr = s.accept()
