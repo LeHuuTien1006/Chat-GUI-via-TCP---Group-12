@@ -9,27 +9,52 @@ File này export các hàm/class để:
 """
 
 # ── Re-export từ các module riêng ────────────────────────────
-from task2_opencv.camera_encode import (
-    open_camera,
-    capture_frame,
-    release_camera,
-    encode_frame_to_bytes,
-    decode_bytes_to_frame,
-    frame_to_bytes_pipeline,
-)
-
-from task2_opencv.tcp_image_transfer import (
-    send_image,
-    receive_image,
-    recv_exact,
-)
-
-from task1_search.message_search import (
-    Message,
-    SearchResult,
-    search_messages,
-    highlight_for_qt,
-)
+# FIX: các file này nằm phẳng trong cùng thư mục Multimedia/, không có
+# package con task2_opencv/ hay task1_search/ -> import kiểu cũ sẽ
+# ModuleNotFoundError ngay khi load.
+# Dùng try/except: ưu tiên import tương đối (khi Quỳnh Anh import
+# integration.py như 1 module trong package UI), fallback sang import
+# tuyệt đối cùng thư mục (khi chạy trực tiếp `python integration.py`).
+try:
+    from .camera_encode import (
+        open_camera,
+        capture_frame,
+        release_camera,
+        encode_frame_to_bytes,
+        decode_bytes_to_frame,
+        frame_to_bytes_pipeline,
+    )
+    from .tcp_image_transfer import (
+        send_image,
+        receive_image,
+        recv_exact,
+    )
+    from .message_search import (
+        Message,
+        SearchResult,
+        search_messages,
+        highlight_for_qt,
+    )
+except ImportError:
+    from camera_encode import (
+        open_camera,
+        capture_frame,
+        release_camera,
+        encode_frame_to_bytes,
+        decode_bytes_to_frame,
+        frame_to_bytes_pipeline,
+    )
+    from tcp_image_transfer import (
+        send_image,
+        receive_image,
+        recv_exact,
+    )
+    from message_search import (
+        Message,
+        SearchResult,
+        search_messages,
+        highlight_for_qt,
+    )
 
 import socket
 import threading
