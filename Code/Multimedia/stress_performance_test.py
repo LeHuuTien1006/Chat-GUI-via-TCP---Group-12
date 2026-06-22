@@ -1,28 +1,21 @@
 """
 Stress Test & Performance Test
 Nhóm 12 - Lê Hữu Tiến
-────────────────────────────────────────────────────────────
-Chụp ảnh màn hình minh chứng các bài test, lưu vào thư mục Extra.
-Theo đặc tả: Quân chạy Server, Tiến và Quỳnh Anh bật nhiều cửa sổ
-Client để test kick tài khoản, gửi ảnh xem hệ thống có bị sập không.
-────────────────────────────────────────────────────────────
+─────────
 """
 
 import socket
 import threading
 import time
 import struct
+import json
+import random
 import numpy as np
 import cv2
 import os
-import json
-from dataclasses import dataclass, field
-from typing import List, Dict
+from dataclasses import dataclass
+from typing import List
 
-
-# ─────────────────────────────────────────────────────────────
-#  CẤU TRÚC KẾT QUẢ TEST
-# ─────────────────────────────────────────────────────────────
 
 @dataclass
 class TestResult:
@@ -32,7 +25,9 @@ class TestResult:
     fail_count: int
     duration_sec: float
     images_sent: int = 0
+    messages_sent: int = 0
     avg_latency_ms: float = 0.0
+    crashes_detected: int = 0
     notes: str = ""
 
     @property
@@ -42,8 +37,32 @@ class TestResult:
         return self.success_count / self.total_clients * 100
 
 
-def _make_fake_frame(text: str = "Test") -> bytes:
-    """Tạo ảnh giả và encode thành JPEG bytes."""
+def _send_framed(sock: socket.socket, payload: bytes):
+    """Gửi 1 gói đúng khuôn giao thức của server.py: [4-byte len][payload]."""
+    header = struct.pack("!I", len(payload))
+    sock.sendall(header + payload)
+
+
+def _recv_framed(sock: socket.socket, timeout=3.0):
+    """Nhận 1 gói trả lời từ server (dùng để confirm login OK)."""
+    sock.settimeout(timeout)
+    hdr = b""
+    while len(hdr) < 4:
+        chunk = sock.recv(4 - len(hdr))
+        if not chunk:
+            return None
+        hdr += chunk
+    size = struct.unpack("!I", hdr)[0]
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(min(4096, size - len(data)))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+
+def _make_fake_jpeg(text: str = "Test") -> bytes:
     frame = np.zeros((240, 320, 3), dtype=np.uint8)
     frame[:] = (30, 60, 90)
     cv2.putText(frame, text, (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
@@ -51,37 +70,23 @@ def _make_fake_frame(text: str = "Test") -> bytes:
     return buf.tobytes()
 
 
-def _send_with_header(sock: socket.socket, img_bytes: bytes):
-    """Gửi ảnh có 4-byte header (dùng cho test)."""
-    header = struct.pack("!I", len(img_bytes))
-    sock.sendall(header + img_bytes)
-
-
 # ─────────────────────────────────────────────────────────────
-#  STRESS TEST — ÉP TẢI SERVER
+#  STRESS TEST CHÍNH — Đúng flow login -> chat -> ảnh
 # ─────────────────────────────────────────────────────────────
 
-def stress_test(
+def stress_test_real_server(
     server_host: str = "127.0.0.1",
     server_port: int = 9999,
     num_clients: int = 50,
-    images_per_client: int = 10,
-    timeout_sec: float = 5.0
+    actions_per_client: int = 10,
+    timeout_sec: float = 5.0,
 ) -> TestResult:
-    """
-    Tạo num_clients threads, mỗi thread kết nối Server và gửi ảnh.
-    Đo số kết nối thành công / thất bại, tổng ảnh gửi được.
+    print(f"\n{'='*60}")
+    print(f" STRESS TEST (SERVER THẬT): {num_clients} client x {actions_per_client} hành động")
+    print(f"{'='*60}")
 
-    Args:
-        num_clients     : Số Client đồng thời (mặc định 50 theo yêu cầu)
-        images_per_client: Mỗi Client gửi bao nhiêu ảnh
-    """
-    print(f"\n{'═'*55}")
-    print(f" STRESS TEST: {num_clients} clients × {images_per_client} ảnh/client")
-    print(f"{'═'*55}")
-
-    img_bytes = _make_fake_frame("STRESS")
-    results = {"success": 0, "fail": 0, "images": 0}
+    img_bytes = _make_fake_jpeg("STRESS")
+    results = {"success": 0, "fail": 0, "images": 0, "messages": 0, "crash": 0}
     lock = threading.Lock()
     latencies = []
 
@@ -91,224 +96,221 @@ def stress_test(
             sock.settimeout(timeout_sec)
             sock.connect((server_host, server_port))
 
-            for _ in range(images_per_client):
-                t0 = time.perf_counter()
-                _send_with_header(sock, img_bytes)
-                dt = (time.perf_counter() - t0) * 1000
+            # 1. Login đúng flow thật
+            login_payload = json.dumps({
+                "type": "login", "nickname": f"stress_client_{client_id}"
+            }).encode("utf-8")
+            _send_framed(sock, login_payload)
+            reply = _recv_framed(sock, timeout=timeout_sec)
+            if reply is None:
+                raise ConnectionError("Server không trả lời login")
 
+            # 2. Trộn lẫn chat text + gửi ảnh, giống hành vi user thật
+            for i in range(actions_per_client):
+                t0 = time.perf_counter()
+                if random.random() < 0.5:
+                    msg = json.dumps({
+                        "type": "chat_all",
+                        "sender": f"stress_client_{client_id}",
+                        "content": f"msg #{i} from {client_id}",
+                    }).encode("utf-8")
+                    _send_framed(sock, msg)
+                    with lock:
+                        results["messages"] += 1
+                else:
+                    _send_framed(sock, img_bytes)
+                    with lock:
+                        results["images"] += 1
+                dt = (time.perf_counter() - t0) * 1000
                 with lock:
-                    results["images"] += 1
                     latencies.append(dt)
 
             sock.close()
             with lock:
                 results["success"] += 1
-                if client_id % 10 == 0:
-                    print(f"  [Client {client_id:>3}] ✓ Gửi {images_per_client} ảnh xong")
 
-        except Exception as e:
+        except (ConnectionResetError, BrokenPipeError) as e:
+            # Đây chính là dấu hiệu server bị crash giữa chừng (vd. do
+            # RuntimeError dict-changed-size làm broadcast loop chết,
+            # socket bị đóng đột ngột)
             with lock:
                 results["fail"] += 1
-                print(f"  [Client {client_id:>3}] ✗ Lỗi: {type(e).__name__}")
+                results["crash"] += 1
+        except Exception:
+            with lock:
+                results["fail"] += 1
 
     t_start = time.perf_counter()
     threads = [threading.Thread(target=client_worker, args=(i,), daemon=True)
                for i in range(num_clients)]
     for t in threads:
         t.start()
+        time.sleep(0.01)  # stagger nhẹ để giống traffic thực, không đốt CPU local đo sai
     for t in threads:
-        t.join(timeout=timeout_sec + 5)
+        t.join(timeout=timeout_sec + 10)
 
     duration = time.perf_counter() - t_start
     avg_latency = sum(latencies) / len(latencies) if latencies else 0
 
     result = TestResult(
-        test_name=f"Stress Test ({num_clients} clients)",
+        test_name=f"Stress Test thật ({num_clients} client)",
         total_clients=num_clients,
         success_count=results["success"],
         fail_count=results["fail"],
         duration_sec=round(duration, 2),
         images_sent=results["images"],
+        messages_sent=results["messages"],
         avg_latency_ms=round(avg_latency, 2),
+        crashes_detected=results["crash"],
     )
 
     print(f"\n  Kết quả:")
-    print(f"  ├─ Thành công  : {result.success_count}/{result.total_clients} ({result.success_rate:.1f}%)")
-    print(f"  ├─ Thất bại    : {result.fail_count}")
-    print(f"  ├─ Ảnh gửi được: {result.images_sent:,}")
-    print(f"  ├─ Thời gian   : {result.duration_sec:.2f}s")
-    print(f"  └─ Latency TB  : {result.avg_latency_ms:.2f}ms/ảnh")
+    print(f"  +- Thanh cong   : {result.success_count}/{result.total_clients} ({result.success_rate:.1f}%)")
+    print(f"  +- That bai     : {result.fail_count} (trong do nghi crash server: {result.crashes_detected})")
+    print(f"  +- Anh gui      : {result.images_sent:,}")
+    print(f"  +- Tin nhan gui : {result.messages_sent:,}")
+    print(f"  +- Thoi gian    : {result.duration_sec:.2f}s")
+    print(f"  +- Latency TB   : {result.avg_latency_ms:.2f}ms")
     return result
 
 
 # ─────────────────────────────────────────────────────────────
-#  PERFORMANCE TEST — ĐO THÔNG LƯỢNG
+#  CHURN TEST — Cố tình khai thác race condition trên `clients` dict
+#  (kết nối + rớt mạng dồn dập trong khi vẫn có client khác đang chat)
 # ─────────────────────────────────────────────────────────────
 
-def performance_test(
+def churn_test(
     server_host: str = "127.0.0.1",
     server_port: int = 9999,
-    duration_sec: int = 10,
-    num_clients: int = 5
+    background_clients: int = 15,
+    churners: int = 20,
+    duration_sec: int = 8,
 ) -> TestResult:
     """
-    Đo thông lượng (throughput): bao nhiêu ảnh/giây Server xử lý được
-    với num_clients gửi liên tục trong duration_sec giây.
+    background_clients: client ổn định, liên tục chat -> để có gì đó cho
+                         server broadcast (tức là server phải lặp clients.items()).
+    churners: client connect rồi disconnect ngay lập tức, lặp lại liên
+              tục trong duration_sec giây -> để liên tục có del clients[addr]
+              xảy ra giữa lúc background_clients đang khiến server iterate
+              dict đó để broadcast.
+    Mục tiêu: lộ ra "RuntimeError: dictionary changed size during iteration"
+    phía server (Quân sẽ thấy log lỗi này nếu chạy server ở terminal riêng).
     """
-    print(f"\n{'═'*55}")
-    print(f" PERFORMANCE TEST: {num_clients} clients gửi liên tục {duration_sec}s")
-    print(f"{'═'*55}")
+    print(f"\n{'='*60}")
+    print(f" CHURN TEST (khai thac race condition clients dict)")
+    print(f" {background_clients} client chat lien tuc + {churners} client connect/disconnect lien tuc")
+    print(f"{'='*60}")
 
-    img_bytes = _make_fake_frame("PERF")
-    counter = {"images": 0, "bytes": 0}
-    lock = threading.Lock()
     stop_event = threading.Event()
+    counters = {"bg_msgs": 0, "bg_fail": 0, "churn_ok": 0, "churn_fail": 0}
+    lock = threading.Lock()
 
-    def sender(client_id: int):
+    def background_worker(cid: int):
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(5.0)
+            sock.settimeout(3.0)
             sock.connect((server_host, server_port))
+            login = json.dumps({"type": "login", "nickname": f"bg_{cid}"}).encode()
+            _send_framed(sock, login)
+            _recv_framed(sock, timeout=3.0)
             while not stop_event.is_set():
-                _send_with_header(sock, img_bytes)
+                msg = json.dumps({
+                    "type": "chat_all", "sender": f"bg_{cid}", "content": "ping"
+                }).encode()
+                _send_framed(sock, msg)
                 with lock:
-                    counter["images"] += 1
-                    counter["bytes"] += len(img_bytes)
+                    counters["bg_msgs"] += 1
+                time.sleep(0.05)
             sock.close()
         except Exception:
-            pass
+            with lock:
+                counters["bg_fail"] += 1
 
-    threads = [threading.Thread(target=sender, args=(i,), daemon=True)
-               for i in range(num_clients)]
+    def churn_worker():
+        while not stop_event.is_set():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2.0)
+                sock.connect((server_host, server_port))
+                login = json.dumps({"type": "login", "nickname": "churn"}).encode()
+                _send_framed(sock, login)
+                _recv_framed(sock, timeout=2.0)
+                sock.close()  # disconnect ngay -> trigger del clients[addr] phía server
+                with lock:
+                    counters["churn_ok"] += 1
+            except Exception:
+                with lock:
+                    counters["churn_fail"] += 1
+            # FIX: giảm tốc độ churn (0.02s -> 0.25s). Tốc độ cũ tạo ra
+            # ~970 connect/giây, làm bão hòa s.listen(5) của server LIÊN
+            # TỤC suốt cả test -> khiến cả background_worker (vốn không
+            # liên quan gì tới race condition) bị timeout ngay từ bước
+            # connect(), làm nhiễu kết quả, không phân biệt được đâu là
+            # do bug #2 (race condition dict) và đâu là do bug #4
+            # (backlog quá nhỏ). Giảm tốc để background có thể connect
+            # và chạy ổn định, chỉ còn biến churn làm yếu tố kích hoạt
+            # race condition trên dict clients.
+            time.sleep(0.25)
+
     t_start = time.perf_counter()
+    threads = []
+    threads += [threading.Thread(target=background_worker, args=(i,), daemon=True)
+                for i in range(background_clients)]
+    threads += [threading.Thread(target=churn_worker, daemon=True)
+                for _ in range(churners)]
     for t in threads:
         t.start()
+        time.sleep(0.03)  # FIX: stagger nhẹ để không bị nghẽn do
+                           # listen(5) backlog quá nhỏ của server -
+                           # tránh nhiễu kết quả với bug đang muốn test
 
     time.sleep(duration_sec)
     stop_event.set()
     for t in threads:
         t.join(timeout=3)
+    duration = time.perf_counter() - t_start
 
-    elapsed = time.perf_counter() - t_start
-    fps = counter["images"] / elapsed
-    mbps = counter["bytes"] / elapsed / 1_048_576
+    total = background_clients + churners
+    fail = counters["bg_fail"] + counters["churn_fail"]
 
     result = TestResult(
-        test_name=f"Performance Test ({num_clients} clients, {duration_sec}s)",
-        total_clients=num_clients,
-        success_count=num_clients,
-        fail_count=0,
-        duration_sec=round(elapsed, 2),
-        images_sent=counter["images"],
-        notes=f"Throughput: {fps:.1f} fps | {mbps:.2f} MB/s"
+        test_name=f"Churn Test ({background_clients} bg + {churners} churn)",
+        total_clients=total,
+        success_count=total - fail,
+        fail_count=fail,
+        duration_sec=round(duration, 2),
+        messages_sent=counters["bg_msgs"],
+        notes=(f"churn_ok={counters['churn_ok']}, churn_fail={counters['churn_fail']}. "
+               f"NEU server.py crash/dung log trong luc nay (kiem tra terminal chay "
+               f"server) -> da xac nhan bug race condition tren dict clients."),
     )
 
-    print(f"\n  Kết quả:")
-    print(f"  ├─ Tổng ảnh gửi: {counter['images']:,}")
-    print(f"  ├─ Dữ liệu     : {counter['bytes']/1_048_576:.1f} MB")
-    print(f"  ├─ Thời gian   : {elapsed:.2f}s")
-    print(f"  ├─ Throughput  : {fps:.1f} fps")
-    print(f"  └─ Băng thông  : {mbps:.2f} MB/s")
+    print(f"\n  Ket qua:")
+    print(f"  +- Background chat gui   : {counters['bg_msgs']:,} (fail: {counters['bg_fail']})")
+    print(f"  +- Churn connect/disconnect: {counters['churn_ok']} ok / {counters['churn_fail']} fail")
+    print(f"  +- LUU Y: kiem tra terminal dang chay server.py xem co log")
+    print(f"            'RuntimeError: dictionary changed size during iteration' khong.")
+    print(f"            Neu co -> bug #2 trong phan tich da duoc xac nhan thuc te.")
     return result
 
 
-# ─────────────────────────────────────────────────────────────
-#  LƯU KẾT QUẢ TEST DƯỚI DẠNG JSON (lưu vào Extra/)
-# ─────────────────────────────────────────────────────────────
-
-def save_test_results(results: List[TestResult], output_dir: str = "Extra"):
-    """Lưu kết quả test thành JSON để gộp vào báo cáo DOCX."""
-    os.makedirs(output_dir, exist_ok=True)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    out_path = os.path.join(output_dir, f"test_results_{timestamp}.json")
-
-    data = []
-    for r in results:
-        data.append({
-            "test_name": r.test_name,
-            "total_clients": r.total_clients,
-            "success_count": r.success_count,
-            "fail_count": r.fail_count,
-            "success_rate_pct": round(r.success_rate, 1),
-            "duration_sec": r.duration_sec,
-            "images_sent": r.images_sent,
-            "avg_latency_ms": r.avg_latency_ms,
-            "notes": r.notes,
-        })
-
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-    print(f"\n[SAVE] Kết quả lưu tại: {out_path}")
-    return out_path
-
-
-# ─────────────────────────────────────────────────────────────
-#  MOCK SERVER ĐỂ TEST ĐỘC LẬP (không cần Quân chạy server thật)
-# ─────────────────────────────────────────────────────────────
-
-def _mock_server(host: str, port: int, stop_event: threading.Event):
-    """Server giả để nhận và bỏ dữ liệu — dùng khi test độc lập."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind((host, port))
-    srv.listen(100)
-    srv.settimeout(1.0)
-
-    def handle(conn):
-        try:
-            while not stop_event.is_set():
-                hdr = b""
-                while len(hdr) < 4:
-                    chunk = conn.recv(4 - len(hdr))
-                    if not chunk:
-                        return
-                    hdr += chunk
-                size = struct.unpack("!I", hdr)[0]
-                received = 0
-                while received < size:
-                    chunk = conn.recv(min(4096, size - received))
-                    if not chunk:
-                        return
-                    received += len(chunk)
-        except Exception:
-            pass
-        finally:
-            conn.close()
-
-    while not stop_event.is_set():
-        try:
-            conn, _ = srv.accept()
-            threading.Thread(target=handle, args=(conn,), daemon=True).start()
-        except socket.timeout:
-            continue
-    srv.close()
-
-
 if __name__ == "__main__":
-    HOST, PORT = "127.0.0.1", 19999
-    stop = threading.Event()
+    HOST = os.environ.get("CHAT_SERVER_HOST", "127.0.0.1")
+    PORT = int(os.environ.get("CHAT_SERVER_PORT", "9999"))
 
-    # Khởi động mock server nền
-    srv_thread = threading.Thread(target=_mock_server, args=(HOST, PORT, stop), daemon=True)
-    srv_thread.start()
-    time.sleep(0.3)
+    print(f"\n>>> Dam bao server.py thuc cua Quan dang chay tai {HOST}:{PORT} truoc khi test <<<\n")
 
-    all_results = []
+    all_results: List[TestResult] = []
 
-    # 1. Stress test 30 clients
-    r1 = stress_test(HOST, PORT, num_clients=30, images_per_client=5)
+    r1 = stress_test_real_server(HOST, PORT, num_clients=50, actions_per_client=10)
     all_results.append(r1)
-    time.sleep(0.5)
+    time.sleep(1)
 
-    # 2. Performance test 5 clients trong 5 giây
-    r2 = performance_test(HOST, PORT, duration_sec=5, num_clients=5)
+    r2 = churn_test(HOST, PORT, background_clients=15, churners=20, duration_sec=15)
     all_results.append(r2)
 
-    # Lưu kết quả
-    stop.set()
-    save_test_results(all_results, output_dir="Extra")
-
-    print(f"\n{'═'*55}")
-    print(" TẤT CẢ TESTS HOÀN THÀNH — Tiến chụp màn hình lưu vào Extra/")
-    print(f"{'═'*55}")
+    print(f"\n{'='*60}")
+    print(" TONG KET")
+    for r in all_results:
+        print(f"  - {r.test_name}: {r.success_count}/{r.total_clients} OK, fail={r.fail_count}")
+    print(f"{'='*60}")

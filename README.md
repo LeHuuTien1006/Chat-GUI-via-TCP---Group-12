@@ -5,7 +5,7 @@
 |---|---|---|---|
 | 1 | Đỗ Nguyễn Quỳnh Anh | 086306005322 | [QynhAnhh](https://github.com/QynhAnhh) |
 | 2 | Trần Minh Quân | 352774521 | [quantran9739-png](https://github.com/quantran9739-png) |
-| 3 | Lê Hữu Tiến | 072206006554 | [tiendz126](https://github.com/tiendz126) |
+| 3 | Lê Hữu Tiến | 072206006554 | [LeHuuTien1006](https://github.com/LeHuuTien1006) |
 
 ## 2. Công nghệ sử dụng
 * **Ngôn ngữ:** Python
