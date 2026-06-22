@@ -1,5 +1,8 @@
 import sys
 import os
+
+
+
 import json
 import struct
 import socket
@@ -181,7 +184,7 @@ class ChatWindow(QWidget):
         
         self.ui.lbl_chat_title.setText(f"Chào mừng, {self.nickname}!")
         # Khởi tạo bộ máy tìm kiếm tin nhắn
-        self.engine = MessageSearchEngine()
+        # self.engine = MessageSearchEngine()
         self.msg_counter = 0 # Biến tạo ID tự tăng cho tin nhắn
 
         # Gắn sự kiện cho nút tìm kiếm và khi ấn Enter ở ô tìm kiếm
@@ -219,13 +222,13 @@ class ChatWindow(QWidget):
         timestamp = datetime.now().strftime("%H:%M:%S")
         
         # Tạo đối tượng Message chuẩn theo API của Tiến
-        msg_obj = Message(
-            msg_id=self.msg_counter, 
-            sender=sender, 
-            content=content, 
-            timestamp=timestamp
-        )
-        self.engine.add_message(msg_obj)
+        # msg_obj = Message(
+        #     msg_id=self.msg_counter, 
+        #     sender=sender, 
+        #     content=content, 
+        #     timestamp=timestamp
+        # )
+        # self.engine.add_message(msg_obj)
 
     def display_image(self, frame, is_sender=False):
         # 1. Nén ảnh thành Base64 (chuỗi ký tự) để nhúng vào HTML
