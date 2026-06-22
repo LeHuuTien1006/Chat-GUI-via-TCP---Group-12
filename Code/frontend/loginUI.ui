@@ -242,13 +242,13 @@ QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color:
          <string notr="true">QLineEdit { border: 1px solid #D1D5DB; border-radius: 6px; padding: 5px; background: white; }</string>
         </property>
         <property name="text">
-         <string>12345</string>
+         <string>9999</string>
         </property>
         <property name="readOnly">
          <bool>true</bool>
         </property>
         <property name="placeholderText">
-         <string>12345</string>
+         <string>9999</string>
         </property>
        </widget>
       </item>
