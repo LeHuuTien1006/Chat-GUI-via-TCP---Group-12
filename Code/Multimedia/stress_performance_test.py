@@ -1,5 +1,5 @@
 """
-Stress Test & Performance Test v2 — TEST ĐÚNG SERVER THẬT (Code/Backend/server.py)
+Stress Test & Performance Test
 Nhóm 12 - Lê Hữu Tiến
 ─────────
 """
