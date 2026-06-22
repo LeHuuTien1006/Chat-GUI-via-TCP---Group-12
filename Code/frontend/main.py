@@ -1,7 +1,11 @@
 import sys
 import os
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+multimedia_dir = os.path.abspath(os.path.join(current_dir, '..', 'Multimedia'))
 
+if multimedia_dir not in sys.path:
+    sys.path.insert(0, multimedia_dir)
 
 import json
 import struct
@@ -184,7 +188,7 @@ class ChatWindow(QWidget):
         
         self.ui.lbl_chat_title.setText(f"Chào mừng, {self.nickname}!")
         # Khởi tạo bộ máy tìm kiếm tin nhắn
-        self.engine = MessageSearchEngine()
+        # self.engine = MessageSearchEngine()
         self.msg_counter = 0 # Biến tạo ID tự tăng cho tin nhắn
 
         # Gắn sự kiện cho nút tìm kiếm và khi ấn Enter ở ô tìm kiếm
@@ -222,13 +226,13 @@ class ChatWindow(QWidget):
         timestamp = datetime.now().strftime("%H:%M:%S")
         
         # Tạo đối tượng Message chuẩn theo API của Tiến
-        msg_obj = Message(
-            msg_id=self.msg_counter, 
-            sender=sender, 
-            content=content, 
-            timestamp=timestamp
-        )
-        self.engine.add_message(msg_obj)
+        # msg_obj = Message(
+        #     msg_id=self.msg_counter, 
+        #     sender=sender, 
+        #     content=content, 
+        #     timestamp=timestamp
+        # )
+        # self.engine.add_message(msg_obj)
 
     def display_image(self, frame, is_sender=False):
         # 1. Nén ảnh thành Base64 (chuỗi ký tự) để nhúng vào HTML
