@@ -155,46 +155,183 @@ class ChatWindow(QWidget):
     def __init__(self, sock, nickname):
         super().__init__()
         self.sock = sock 
-        self.nickname = nickname # Nhận tên từ màn hình đăng nhập
+        self.nickname = nickname
+        
+        # 1. SỬA ĐƯỜNG DẪN TUYỆT ĐỐI CHO FILE UI PHÒNG CHAT
+        import os
+        from PySide6.QtUiTools import QUiLoader
+        from PySide6.QtCore import QFile
+        
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        ui_path = os.path.join(current_dir, "mainchatUI.ui")
         
         loader = QUiLoader()
-        ui_file = QFile("mainchatUI.ui") 
+        ui_file = QFile(ui_path) 
         if not ui_file.open(QFile.ReadOnly):
             print(f"Không thể mở file UI phòng chat: {ui_file.errorString()}")
             sys.exit(-1)
             
-        self.ui = loader.load(ui_file, self)
+        self.ui = loader.load(ui_file)
         ui_file.close()
 
-        # 1. Khởi tạo khung hiển thị văn bản chat (QTextBrowser)
-        self.chat_browser = QTextBrowser()
-        self.chat_browser.setStyleSheet("background-color: transparent; color: white; border: none; font-size: 14px;")
-        layout = QVBoxLayout(self.ui.scrollAreaWidgetContents_2)
-        layout.addWidget(self.chat_browser)
+        # Layout và kích thước cửa sổ
+        from PySide6.QtWidgets import QVBoxLayout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self.ui)
 
-        # 2. Gắn sự kiện gửi tin nhắn khi bấm nút hoặc ấn Enter
+        self.resize(1100, 700)
+        screen_geometry = QApplication.primaryScreen().geometry()
+        x = (screen_geometry.width() - self.width()) // 2
+        y = (screen_geometry.height() - self.height()) // 2
+        self.move(x, y)
+        self.setMinimumWidth(550)
+
+        # 2. KHỞI TẠO CHAT BROWSER VÀ CÁC LUỒNG SỰ KIỆN (CHỈ KHỞI TẠO 1 LẦN DUY NHẤT Ở ĐÂY)
+        from PySide6.QtWidgets import QVBoxLayout
+        from PySide6.QtCore import Qt
+
+        self.chat_layout = QVBoxLayout(self.ui.scrollAreaWidgetContents_2)
+        self.chat_layout.setAlignment(Qt.AlignTop) # Đảm bảo tin nhắn dồn từ trên xuống
+        self.chat_layout.setContentsMargins(10, 10, 10, 10)
+        self.chat_layout.setSpacing(5)
+
         self.ui.btn_send.clicked.connect(self.send_message)
         self.ui.txt_input_message.returnPressed.connect(self.send_message)
-
         self.ui.btn_camera.clicked.connect(self.capture_and_send_image)
 
-        # 3. Khởi chạy luồng nhận tin nhắn liên tục
+        # Khởi chạy luồng nhận dữ liệu từ server
         self.receiver = ReceiveThread(self.sock)
         self.receiver.message_received.connect(self.display_message)
-        
-        # Kết nối tín hiệu nhận ảnh
         self.receiver.image_received.connect(self.display_image)
         self.receiver.start()
         
         self.ui.lbl_chat_title.setText(f"Chào mừng, {self.nickname}!")
-        # Khởi tạo bộ máy tìm kiếm tin nhắn
-        # self.engine = MessageSearchEngine()
-        self.msg_counter = 0 # Biến tạo ID tự tăng cho tin nhắn
+        
+        self.engine = MessageSearchEngine()
+        self.msg_counter = 0 
 
-        # Gắn sự kiện cho nút tìm kiếm và khi ấn Enter ở ô tìm kiếm
-        self.ui.btn_search_chat.clicked.connect(self.perform_search)
-        self.ui.txt_search.returnPressed.connect(self.perform_search)
+        self.ui.txt_search.textChanged.connect(self.perform_global_search) 
+        self.ui.btn_search_chat.clicked.connect(self.show_local_search_input) 
 
+        self.last_sender = None
+        self.last_msg_time = None
+        self.last_time_label = None
+
+        # 3. CHẠY HÀM TẠO TAB ĐỘNG CỦA CỘT 2
+        self.setup_dynamic_tabs()
+
+    def setup_dynamic_tabs(self):
+        from PySide6.QtWidgets import QTabWidget, QListWidget
+
+        # Khởi tạo QTabWidget mới hoàn toàn bằng mã Python
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: none;
+                background-color: #22262B;
+            }
+            QTabBar::tab {
+                background-color: #1E1F20;
+                color: #8A8D91;
+                padding: 8px 16px;
+                border: none;
+                font-size: 13px;
+                font-weight: 500;
+            }
+            QTabBar::tab:selected {
+                background-color: #22262B;
+                color: #ffffff;
+                border-bottom: 2px solid #3498db;
+            }
+            QTabBar::tab:hover {
+                color: #ffffff;
+                background-color: rgba(255, 255, 255, 0.05);
+            }
+        """)
+
+        # Tạo các QListWidget độc lập cho dữ liệu TÌM KIẾM
+        self.list_all = QListWidget()                
+        self.list_contacts = QListWidget()           
+        self.list_messages = QListWidget()           
+
+        list_style = "background-color: transparent; color: white; border: none; font-size: 13px;"
+        self.list_all.setStyleSheet(list_style) 
+        self.list_contacts.setStyleSheet(list_style)
+        self.list_messages.setStyleSheet(list_style)
+
+        # Thêm các List tương ứng vào từng trang Tab
+        self.tab_widget.addTab(self.list_all, "Tất cả")
+        self.tab_widget.addTab(self.list_contacts, "Liên hệ")
+        self.tab_widget.addTab(self.list_messages, "Tin nhắn")
+
+        # Đưa QTabWidget vào layout đứng của Cột 2
+        self.ui.verticalLayout_2.addWidget(self.tab_widget)
+
+        # MẶC ĐỊNH ẨN THANH TAB KHI MỚI KHỞI ĐỘNG
+        self.tab_widget.hide()
+        # ĐÃ XÓA TOÀN BỘ PHẦN CODE TRÙNG LẶP GÂY XUNG ĐỘT LUỒNG TẠI ĐÂY
+
+
+    # --- THÊM 2 HÀM TÌM KIẾM CỤC BỘ CHO CỘT 3 VÀO ĐÂY ---
+    def show_local_search_input(self):
+        from PySide6.QtWidgets import QInputDialog
+        keyword, ok = QInputDialog.getText(self, "Tìm kiếm cục bộ", "Nhập từ khóa cần tìm trong đoạn chat này:")
+        if ok and keyword.strip():
+            self.perform_local_search(keyword.strip())
+
+    def perform_local_search(self, keyword):
+        from integration import highlight_for_qt
+        current_room = self.ui.lbl_chat_title.text()
+        
+        all_results = self.engine.search(keyword)
+        # Nếu chưa chia phòng, có thể bỏ qua lọc theo current_room tạm thời
+        # local_results = [r for r in all_results if r.message.room == current_room]
+        local_results = all_results 
+        
+        self.chat_browser.append("<hr>")
+        self.chat_browser.append(f"<div style='color: #f1c40f;'><b>🔍 KẾT QUẢ TÌM KIẾM TRONG ĐOẠN CHAT: '{keyword}'</b></div>")
+        
+        for r in local_results:
+            html_content = highlight_for_qt(r.message.content, r.match_positions)
+            self.chat_browser.append(f"<b>{r.message.sender}:</b> {html_content}")
+        
+        self.chat_browser.append("<hr>")
+
+
+    def perform_global_search(self, text):
+        keyword = text.strip()
+        
+        # Xóa sạch kết quả tìm kiếm cũ ở các tab trước khi nạp data mới
+        self.list_all.clear()
+        self.list_contacts.clear()
+        self.list_messages.clear()
+
+        # TRƯỜNG HỢP Ô TÌM KIẾM TRỐNG: Ẩn thanh Tab tìm kiếm, hiện lại danh sách chat gốc ban đầu
+        if not keyword:
+            self.tab_widget.hide()
+            self.ui.list_chats.show()
+            return
+
+        # TRƯỜNG HỢP CÓ TỪ KHÓA: Ẩn danh sách chat gốc, bật thanh Tab kết quả tìm kiếm lên
+        self.ui.list_chats.hide()
+        self.tab_widget.show()
+
+        # --- LUỒNG 1: TÌM KIẾM LIÊN HỆ ---
+        sample_contacts = ["Lê Trần Hiền", "Bùi Minh Hiếu", "Trung Hiếu", "Vũ Thị Thu Hiền", "Tấn Hiệp", "Công Hiếu"]
+        
+        for contact in sample_contacts:
+            if keyword.lower() in contact.lower():
+                self.list_contacts.addItem(contact)
+                self.list_all.addItem(f"[Liên hệ] {contact}")
+
+        # --- LUỒNG 2: TÌM KIẾM TIN NHẮN (Gọi Engine) ---
+        message_results = self.engine.search(keyword)
+        
+        for r in message_results:
+            msg_display = f"{r.message.sender}: {r.message.content}"
+            self.list_messages.addItem(msg_display)
+            self.list_all.addItem(f"[Tin nhắn] {msg_display}")
 
     def send_message(self):
         content = self.ui.txt_input_message.text().strip()
@@ -216,39 +353,212 @@ class ChatWindow(QWidget):
             print("Lỗi gửi tin nhắn:", e)
 
     def display_message(self, sender, content):
-        # 1. Định dạng và in tin nhắn lên khung chat (code cũ của em)
-        color = "#3498db" if sender == "Tôi" else "#e74c3c"
-        html_msg = f'<div style="margin-bottom: 5px;"><b><span style="color:{color};">{sender}:</span></b> {content}</div>'
-        self.chat_browser.append(html_msg)
+        from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel
+        from PySide6.QtCore import Qt, QTimer
+        from datetime import datetime
 
-        # 2. Đóng gói tin nhắn vào Object Message và lưu vào Engine (code mới thêm)
-        self.msg_counter += 1
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        current_time = datetime.now()
+        display_time = current_time.strftime("%H:%M")
         
-        # Tạo đối tượng Message chuẩn theo API của Tiến
-        # msg_obj = Message(
-        #     msg_id=self.msg_counter, 
-        #     sender=sender, 
-        #     content=content, 
-        #     timestamp=timestamp
-        # )
-        # self.engine.add_message(msg_obj)
+        # 1. KIỂM TRA ĐIỀU KIỆN HIỂN THỊ TAG THỜI GIAN (Cách 20 phút = 1200 giây)
+        show_time_tag = False
+        if self.last_msg_time is None or (current_time - self.last_msg_time).total_seconds() > 1200:
+            show_time_tag = True
+            self.last_sender = None  # Cắt đứt cụm, ép hiển thị lại tên người gửi
+
+        # Tạo container dọc bọc toàn bộ khối (Tag thời gian + Tên + Bong bóng)
+        msg_block = QWidget()
+        block_layout = QVBoxLayout(msg_block)
+        block_layout.setContentsMargins(0, 0, 0, 0)
+        block_layout.setSpacing(2)
+
+        # Vẽ Tag thời gian ở giữa màn hình
+        if show_time_tag:
+            tag_text = current_time.strftime("%H:%M %d/%m/%Y")
+            lbl_tag = QLabel(tag_text)
+            lbl_tag.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); color: #8A8D91; font-size: 11px; padding: 4px 12px; border-radius: 10px;")
+            
+            tag_row = QHBoxLayout()
+            tag_row.addStretch()
+            tag_row.addWidget(lbl_tag)
+            tag_row.addStretch()
+            block_layout.addLayout(tag_row)
+            block_layout.addSpacing(8) # Cách bong bóng chat một khoảng
+
+        # 2. VẼ TÊN NGƯỜI GỬI BÊN NGOÀI BONG BÓNG (Chỉ vẽ ở tin đầu tiên của cụm, không vẽ cho "Tôi")
+        if sender != "Tôi" and sender != self.last_sender:
+            lbl_name = QLabel(sender)
+            lbl_name.setStyleSheet("color: #8A8D91; font-size: 12px; margin-left: 10px; margin-bottom: 2px;")
+            name_row = QHBoxLayout()
+            name_row.addWidget(lbl_name)
+            name_row.addStretch()
+            block_layout.addLayout(name_row)
+
+        # 3. ẨN THỜI GIAN CỦA TIN NHẮN TRƯỚC ĐÓ (Nếu cùng 1 người gửi trong cụm)
+        if sender == self.last_sender and not show_time_tag:
+            if self.last_time_label is not None:
+                self.last_time_label.hide()
+
+        # 4. VẼ BONG BÓNG TIN NHẮN
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        bubble = QWidget()
+        bubble_layout = QVBoxLayout(bubble)
+        bubble_layout.setContentsMargins(12, 8, 12, 8)
+        bubble_layout.setSpacing(4)
+
+        # Nội dung chữ
+        lbl_text = QLabel(content)
+        lbl_text.setWordWrap(True)
+        lbl_text.setStyleSheet("background: transparent; color: white; font-size: 14px;")
+
+        # --- ĐOẠN CODE MỚI ĐỂ CHỐNG LÒ XO ÉP XUỐNG DÒNG ---
+        from PySide6.QtGui import QFontMetrics
+        
+        # Đo chiều dài thực tế của text với font hiện tại
+        fm = lbl_text.fontMetrics()
+        # Giả lập vẽ đoạn chữ ra với giới hạn ngang 500px, dọc 2000px để lấy kích thước
+        rect = fm.boundingRect(0, 0, 500, 2000, Qt.TextWordWrap, content)
+        
+        # Cài đặt bộ khung cứng: MinimumWidth giúp nó không bị co lại, MaximumWidth giữ giới hạn 500px
+        lbl_text.setMinimumWidth(rect.width() + 5)
+        lbl_text.setMaximumWidth(500)
+        # --------------------------------------------------
+        
+        bubble_layout.addWidget(lbl_text)
+
+        lbl_time = QLabel(display_time)
+        lbl_time.setStyleSheet("background: transparent; color: #8A8D91; font-size: 11px;")
+        bubble_layout.addWidget(lbl_time)
+
+        if sender == "Tôi":
+            lbl_time.setAlignment(Qt.AlignRight)
+            bubble.setStyleSheet("QWidget { background-color: #1E6C93; border-radius: 15px; }")
+            row_layout.addStretch()
+            row_layout.addWidget(bubble)
+        else:
+            lbl_time.setAlignment(Qt.AlignLeft)
+            bubble.setStyleSheet("QWidget { background-color: #2C323A; border-radius: 15px; }")
+            row_layout.addWidget(bubble)
+            row_layout.addStretch()
+
+        block_layout.addWidget(row_widget)
+        self.chat_layout.addWidget(msg_block)
+
+        # 5. CẬP NHẬT TRÍ NHỚ CHO LẦN HIỂN THỊ SAU
+        self.last_sender = sender
+        self.last_msg_time = current_time
+        self.last_time_label = lbl_time
+
+        # Cuộn màn hình
+        QTimer.singleShot(50, lambda: self.ui.scroll_chat_history.verticalScrollBar().setValue(
+            self.ui.scroll_chat_history.verticalScrollBar().maximum()
+        ))
+
+        # Lưu vào Engine (Giữ nguyên code cũ của em)
+        self.msg_counter += 1
+        full_timestamp = datetime.now().strftime("%H:%M:%S")
+        from integration import Message
+        msg_obj = Message(
+            msg_id=self.msg_counter, 
+            sender=sender, 
+            content=content, 
+            timestamp=full_timestamp
+        )
+        self.engine.add_message(msg_obj)
 
     def display_image(self, frame, is_sender=False):
-        # 1. Nén ảnh thành Base64 (chuỗi ký tự) để nhúng vào HTML
-        success, buffer = cv2.imencode(".jpg", frame)
-        if not success:
-            return
-            
-        b64_str = base64.b64encode(buffer).decode('utf-8')
-        
-        # 2. Phân biệt màu sắc người gửi và người nhận
+        import cv2
+        from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel
+        from PySide6.QtGui import QImage, QPixmap
+        from PySide6.QtCore import Qt, QTimer
+        from datetime import datetime
+
         sender = "Tôi" if is_sender else "Người khác"
-        color = "#3498db" if is_sender else "#e74c3c"
+        current_time = datetime.now()
+        display_time = current_time.strftime("%H:%M")
+
+        show_time_tag = False
+        if self.last_msg_time is None or (current_time - self.last_msg_time).total_seconds() > 1200:
+            show_time_tag = True
+            self.last_sender = None
+
+        msg_block = QWidget()
+        block_layout = QVBoxLayout(msg_block)
+        block_layout.setContentsMargins(0, 0, 0, 0)
+        block_layout.setSpacing(2)
+
+        if show_time_tag:
+            tag_text = current_time.strftime("%H:%M %d/%m/%Y")
+            lbl_tag = QLabel(tag_text)
+            lbl_tag.setStyleSheet("background-color: rgba(255, 255, 255, 0.08); color: #8A8D91; font-size: 11px; padding: 4px 12px; border-radius: 10px;")
+            tag_row = QHBoxLayout()
+            tag_row.addStretch()
+            tag_row.addWidget(lbl_tag)
+            tag_row.addStretch()
+            block_layout.addLayout(tag_row)
+            block_layout.addSpacing(8)
+
+        if sender != "Tôi" and sender != self.last_sender:
+            lbl_name = QLabel(sender)
+            lbl_name.setStyleSheet("color: #8A8D91; font-size: 12px; margin-left: 10px; margin-bottom: 2px;")
+            name_row = QHBoxLayout()
+            name_row.addWidget(lbl_name)
+            name_row.addStretch()
+            block_layout.addLayout(name_row)
+
+        if sender == self.last_sender and not show_time_tag:
+            if self.last_time_label is not None:
+                self.last_time_label.hide()
+
+        rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_image.shape
+        qt_image = QImage(rgb_image.data, w, h, ch * w, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qt_image)
         
-        # 3. Ép ảnh vào khung chat bằng thẻ HTML <img> kèm giới hạn chiều rộng 250px (chống vỡ layout)
-        html_msg = f'<div style="margin-bottom: 5px;"><b><span style="color:{color};">{sender}:</span></b><br><img src="data:image/jpeg;base64,{b64_str}" width="250"></div>'
-        self.chat_browser.append(html_msg)
+        if pixmap.width() > 250:
+            pixmap = pixmap.scaledToWidth(250, Qt.SmoothTransformation)
+
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        bubble = QWidget()
+        bubble_layout = QVBoxLayout(bubble)
+        bubble_layout.setContentsMargins(10, 10, 10, 10)
+
+        lbl_img = QLabel()
+        lbl_img.setPixmap(pixmap)
+        lbl_img.setStyleSheet("background: transparent;")
+
+        lbl_time = QLabel(display_time)
+        lbl_time.setStyleSheet("background: transparent; color: #D0D0D0; font-size: 11px;")
+
+        if is_sender:
+            lbl_time.setAlignment(Qt.AlignRight)
+            bubble_layout.addWidget(lbl_img)
+            bubble_layout.addWidget(lbl_time)
+            bubble.setStyleSheet("QWidget { background-color: #1E6C93; border-radius: 15px; }")
+            row_layout.addStretch()
+            row_layout.addWidget(bubble)
+        else:
+            lbl_time.setAlignment(Qt.AlignLeft)
+            bubble_layout.addWidget(lbl_img)
+            bubble_layout.addWidget(lbl_time)
+            bubble.setStyleSheet("QWidget { background-color: #2C323A; border-radius: 15px; }")
+            row_layout.addWidget(bubble)
+            row_layout.addStretch()
+
+        block_layout.addWidget(row_widget)
+        self.chat_layout.addWidget(msg_block)
+
+        self.last_sender = sender
+        self.last_msg_time = current_time
+        self.last_time_label = lbl_time
+
+        QTimer.singleShot(50, lambda: self.ui.scroll_chat_history.verticalScrollBar().setValue(self.ui.scroll_chat_history.verticalScrollBar().maximum()))
 
     def perform_search(self):
         # 1. Lấy từ khóa người dùng nhập
@@ -302,12 +612,37 @@ class ChatWindow(QWidget):
             print("Lỗi gửi ảnh:", e)
             self.display_message("Lỗi", "Không thể gửi ảnh!")
 
+    def resizeEvent(self, event):
+        # Gọi hàm gốc để đảm bảo các xử lý mặc định của QWidget vẫn hoạt động
+        super().resizeEvent(event)
+
+        current_width = self.width()
+
+        # 1. Xử lý cột 4 (Thông tin) - Ẩn khi nhỏ hơn 1220px
+        if current_width < 1220:
+            self.ui.col4_info.hide()
+        else:
+            self.ui.col4_info.show()
+
+        # 2. Xử lý cột 2 (Danh sách chat) - Ẩn khi nhỏ hơn 870px
+        if current_width < 870:
+            self.ui.col2_chatlist.hide()
+        else:
+            self.ui.col2_chatlist.show()
+
 class LoginWindow(QWidget): 
     def __init__(self):
         super().__init__()
         
+        import os
+        from PySide6.QtUiTools import QUiLoader
+        from PySide6.QtCore import QFile
+        
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        ui_path = os.path.join(current_dir, "loginUI.ui")
+        
         loader = QUiLoader()
-        ui_file = QFile("loginUI.ui") 
+        ui_file = QFile(ui_path) 
         
         if not ui_file.open(QFile.ReadOnly):
             print(f"Không thể mở file UI: {ui_file.errorString()}")
